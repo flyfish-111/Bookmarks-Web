@@ -3,17 +3,19 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Bookmark, Category
+from ..models import Bookmark, Category, User
 from ..schemas import CategoryCreate, CategoryOut, CategoryUpdate
+from ..security import get_current_user
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
 
 @router.get("", response_model=list[CategoryOut])
-async def list_categories(db: AsyncSession = Depends(get_db)):
+async def list_categories(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     stmt = (
         select(Category, func.count(Bookmark.id))
         .outerjoin(Bookmark, Bookmark.category_id == Category.id)
+        .where(Category.user_id == user.id)
         .group_by(Category.id)
         .order_by(Category.sort_order, Category.id)
     )
@@ -25,15 +27,19 @@ async def list_categories(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=CategoryOut, status_code=201)
-async def create_category(payload: CategoryCreate, db: AsyncSession = Depends(get_db)):
+async def create_category(
+    payload: CategoryCreate, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="分类名不能为空")
     if payload.parent_id is not None:
-        parent = await db.get(Category, payload.parent_id)
+        parent = (
+            await db.execute(select(Category).where(Category.id == payload.parent_id, Category.user_id == user.id))
+        ).scalar_one_or_none()
         if not parent:
             raise HTTPException(status_code=404, detail="父分类不存在")
-    category = Category(name=name, parent_id=payload.parent_id, sort_order=payload.sort_order)
+    category = Category(name=name, parent_id=payload.parent_id, sort_order=payload.sort_order, user_id=user.id)
     db.add(category)
     await db.commit()
     await db.refresh(category)
@@ -41,8 +47,15 @@ async def create_category(payload: CategoryCreate, db: AsyncSession = Depends(ge
 
 
 @router.put("/{category_id}", response_model=CategoryOut)
-async def update_category(category_id: int, payload: CategoryUpdate, db: AsyncSession = Depends(get_db)):
-    category = await db.get(Category, category_id)
+async def update_category(
+    category_id: int,
+    payload: CategoryUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    category = (
+        await db.execute(select(Category).where(Category.id == category_id, Category.user_id == user.id))
+    ).scalar_one_or_none()
     if not category:
         raise HTTPException(status_code=404, detail="分类不存在")
     data = payload.model_dump(exclude_unset=True)
@@ -54,8 +67,12 @@ async def update_category(category_id: int, payload: CategoryUpdate, db: AsyncSe
 
 
 @router.delete("/{category_id}", status_code=204)
-async def delete_category(category_id: int, db: AsyncSession = Depends(get_db)):
-    category = await db.get(Category, category_id)
+async def delete_category(
+    category_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    category = (
+        await db.execute(select(Category).where(Category.id == category_id, Category.user_id == user.id))
+    ).scalar_one_or_none()
     if not category:
         raise HTTPException(status_code=404, detail="分类不存在")
     await db.delete(category)

@@ -6,15 +6,16 @@ from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
-from ..models import Bookmark, BookmarkOrder, Category, Tag, bookmark_tags, utcnow
+from ..models import Bookmark, BookmarkOrder, Category, Tag, User, bookmark_tags, utcnow
 from ..schemas import BookmarkCreate, BookmarkListOut, BookmarkOut, BookmarkUpdate, ReorderPayload
+from ..security import get_current_user
 from ..services.extractor import extract_content, extract_metadata
 from ..services.fetcher import FetchError, fetch_html
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
 
 
-async def _get_or_create_tags(db: AsyncSession, names: list[str]) -> list[Tag]:
+async def _get_or_create_tags(db: AsyncSession, names: list[str], user: User) -> list[Tag]:
     tags: list[Tag] = []
     seen: set[str] = set()
     for raw in names:
@@ -22,29 +23,29 @@ async def _get_or_create_tags(db: AsyncSession, names: list[str]) -> list[Tag]:
         if not name or name in seen:
             continue
         seen.add(name)
-        result = await db.execute(select(Tag).where(Tag.name == name))
+        result = await db.execute(select(Tag).where(Tag.user_id == user.id, Tag.name == name))
         tag = result.scalar_one_or_none()
         if not tag:
-            tag = Tag(name=name)
+            tag = Tag(name=name, user_id=user.id)
             db.add(tag)
             await db.flush()
         tags.append(tag)
     return tags
 
 
-async def _get_or_create_category(db: AsyncSession, name: str) -> Category:
+async def _get_or_create_category(db: AsyncSession, name: str, user: User) -> Category:
     name = name.strip()
-    result = await db.execute(select(Category).where(Category.name == name))
+    result = await db.execute(select(Category).where(Category.user_id == user.id, Category.name == name))
     category = result.scalar_one_or_none()
     if not category:
-        category = Category(name=name)
+        category = Category(name=name, user_id=user.id)
         db.add(category)
         await db.flush()
     return category
 
 
-async def _get_bookmark(db: AsyncSession, bookmark_id: int) -> Bookmark | None:
-    result = await db.execute(select(Bookmark).where(Bookmark.id == bookmark_id))
+async def _get_bookmark(db: AsyncSession, bookmark_id: int, user: User) -> Bookmark | None:
+    result = await db.execute(select(Bookmark).where(Bookmark.id == bookmark_id, Bookmark.user_id == user.id))
     return result.scalar_one_or_none()
 
 
@@ -52,18 +53,25 @@ def _url_hash(url: str) -> str:
     return hashlib.sha256(url.encode("utf-8")).hexdigest()
 
 
-async def _get_bookmark_by_url(db: AsyncSession, url: str) -> Bookmark | None:
-    result = await db.execute(select(Bookmark).where(Bookmark.url_hash == _url_hash(url)))
+async def _get_bookmark_by_url(db: AsyncSession, url: str, user: User) -> Bookmark | None:
+    result = await db.execute(
+        select(Bookmark).where(Bookmark.url_hash == _url_hash(url), Bookmark.user_id == user.id)
+    )
     return result.scalar_one_or_none()
 
 
 @router.post("", response_model=BookmarkOut)
-async def create_bookmark(payload: BookmarkCreate, response: Response, db: AsyncSession = Depends(get_db)):
+async def create_bookmark(
+    payload: BookmarkCreate,
+    response: Response,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     url = payload.url.strip()
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
-    existing = await _get_bookmark_by_url(db, url)
+    existing = await _get_bookmark_by_url(db, url, user)
     if existing:
         response.status_code = status.HTTP_200_OK
         return existing
@@ -83,7 +91,7 @@ async def create_bookmark(payload: BookmarkCreate, response: Response, db: Async
         title, description, favicon = "", "", ""
         content_markdown, content_text = "", ""
 
-    min_order = (await db.execute(select(func.min(Bookmark.sort_order)))).scalar()
+    min_order = (await db.execute(select(func.min(Bookmark.sort_order)).where(Bookmark.user_id == user.id))).scalar()
     bookmark = Bookmark(
         url=url,
         url_hash=_url_hash(url),
@@ -93,16 +101,17 @@ async def create_bookmark(payload: BookmarkCreate, response: Response, db: Async
         content_text=content_text or "",
         favicon_url=favicon or "",
         sort_order=(min_order - 1) if min_order is not None else 0,
+        user_id=user.id,
     )
     if payload.category_name and payload.category_name.strip():
-        bookmark.category = await _get_or_create_category(db, payload.category_name)
+        bookmark.category = await _get_or_create_category(db, payload.category_name, user)
     if payload.tags:
-        bookmark.tags = await _get_or_create_tags(db, payload.tags)
+        bookmark.tags = await _get_or_create_tags(db, payload.tags, user)
 
     db.add(bookmark)
     await db.commit()
     response.status_code = status.HTTP_201_CREATED
-    return await _get_bookmark(db, bookmark.id)
+    return await _get_bookmark(db, bookmark.id, user)
 
 
 @router.get("", response_model=BookmarkListOut)
@@ -114,9 +123,10 @@ async def list_bookmarks(
     uncategorized: bool = Query(default=False),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    conditions = []
+    conditions = [Bookmark.user_id == user.id]
     if category_id is not None:
         conditions.append(Bookmark.category_id == category_id)
     if is_favorite is not None:
@@ -167,10 +177,24 @@ async def list_bookmarks(
 
 
 @router.put("/reorder", status_code=204)
-async def reorder_bookmarks(payload: ReorderPayload, db: AsyncSession = Depends(get_db)):
+async def reorder_bookmarks(
+    payload: ReorderPayload,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not payload.ids:
+        return
+    owned = (
+        await db.execute(select(Bookmark.id).where(Bookmark.id.in_(payload.ids), Bookmark.user_id == user.id))
+    ).scalars().all()
+    if len(owned) != len(payload.ids):
+        raise HTTPException(status_code=404, detail="存在不属于你的收藏")
+
     if payload.scope == "all":
         for index, bookmark_id in enumerate(payload.ids):
-            await db.execute(update(Bookmark).where(Bookmark.id == bookmark_id).values(sort_order=index))
+            await db.execute(
+                update(Bookmark).where(Bookmark.id == bookmark_id, Bookmark.user_id == user.id).values(sort_order=index)
+            )
     else:
         await db.execute(delete(BookmarkOrder).where(BookmarkOrder.scope == payload.scope))
         for index, bookmark_id in enumerate(payload.ids):
@@ -179,16 +203,21 @@ async def reorder_bookmarks(payload: ReorderPayload, db: AsyncSession = Depends(
 
 
 @router.get("/{bookmark_id}", response_model=BookmarkOut)
-async def get_bookmark(bookmark_id: int, db: AsyncSession = Depends(get_db)):
-    bookmark = await _get_bookmark(db, bookmark_id)
+async def get_bookmark(bookmark_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    bookmark = await _get_bookmark(db, bookmark_id, user)
     if not bookmark:
         raise HTTPException(status_code=404, detail="收藏不存在")
     return bookmark
 
 
 @router.put("/{bookmark_id}", response_model=BookmarkOut)
-async def update_bookmark(bookmark_id: int, payload: BookmarkUpdate, db: AsyncSession = Depends(get_db)):
-    bookmark = await _get_bookmark(db, bookmark_id)
+async def update_bookmark(
+    bookmark_id: int,
+    payload: BookmarkUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    bookmark = await _get_bookmark(db, bookmark_id, user)
     if not bookmark:
         raise HTTPException(status_code=404, detail="收藏不存在")
 
@@ -201,20 +230,22 @@ async def update_bookmark(bookmark_id: int, payload: BookmarkUpdate, db: AsyncSe
     bookmark.updated_at = utcnow()
     if has_category:
         if category_name and category_name.strip():
-            category = await _get_or_create_category(db, category_name)
+            category = await _get_or_create_category(db, category_name, user)
             bookmark.category = category
         else:
             bookmark.category = None
     if tags is not None:
-        bookmark.tags = await _get_or_create_tags(db, tags)
+        bookmark.tags = await _get_or_create_tags(db, tags, user)
 
     await db.commit()
-    return await _get_bookmark(db, bookmark_id)
+    return await _get_bookmark(db, bookmark_id, user)
 
 
 @router.post("/{bookmark_id}/refetch", response_model=BookmarkOut)
-async def refetch_bookmark(bookmark_id: int, db: AsyncSession = Depends(get_db)):
-    bookmark = await _get_bookmark(db, bookmark_id)
+async def refetch_bookmark(
+    bookmark_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
+    bookmark = await _get_bookmark(db, bookmark_id, user)
     if not bookmark:
         raise HTTPException(status_code=404, detail="收藏不存在")
 
@@ -241,12 +272,12 @@ async def refetch_bookmark(bookmark_id: int, db: AsyncSession = Depends(get_db))
         bookmark.favicon_url = favicon
     bookmark.updated_at = utcnow()
     await db.commit()
-    return await _get_bookmark(db, bookmark.id)
+    return await _get_bookmark(db, bookmark.id, user)
 
 
 @router.delete("/{bookmark_id}", status_code=204)
-async def delete_bookmark(bookmark_id: int, db: AsyncSession = Depends(get_db)):
-    bookmark = await _get_bookmark(db, bookmark_id)
+async def delete_bookmark(bookmark_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    bookmark = await _get_bookmark(db, bookmark_id, user)
     if not bookmark:
         raise HTTPException(status_code=404, detail="收藏不存在")
     await db.delete(bookmark)

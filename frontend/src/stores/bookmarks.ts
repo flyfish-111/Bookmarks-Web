@@ -79,5 +79,18 @@ export const useBookmarksStore = defineStore('bookmarks', () => {
     useMetaStore().loadAll()
   }
 
-  return { items, total, page, pageSize, loading, filters, load, setFilter, setPage, create, update, remove }
+  function reset() {
+    items.value = []
+    total.value = 0
+    page.value = 1
+    filters.value = {
+      q: undefined,
+      category_id: null,
+      tag_id: null,
+      is_favorite: undefined,
+      uncategorized: undefined,
+    }
+  }
+
+  return { items, total, page, pageSize, loading, filters, load, setFilter, setPage, create, update, remove, reset }
 })

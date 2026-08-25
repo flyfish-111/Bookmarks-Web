@@ -31,6 +31,15 @@ bookmark_tags = Table(
 )
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(50), nullable=False, unique=True)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utcnow)
+
+
 class Category(Base):
     __tablename__ = "categories"
 
@@ -38,6 +47,7 @@ class Category(Base):
     name = Column(String(100), nullable=False)
     parent_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
 
     children = relationship("Category", passive_deletes=True)
     bookmarks = relationship("Bookmark", back_populates="category", passive_deletes=True)
@@ -47,7 +57,10 @@ class Tag(Base):
     __tablename__ = "tags"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String(100), nullable=False, unique=True)
+    name = Column(String(100), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_tags_user_name"),)
 
 
 class Bookmark(Base):
@@ -64,6 +77,7 @@ class Bookmark(Base):
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="SET NULL"), nullable=True)
     is_favorite = Column(Boolean, nullable=False, default=False)
     sort_order = Column(Integer, nullable=False, default=0)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=utcnow)
     updated_at = Column(DateTime, nullable=False, default=utcnow, onupdate=utcnow)
 

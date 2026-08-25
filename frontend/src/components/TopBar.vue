@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
+import { ArrowDown, Plus, Search } from '@element-plus/icons-vue'
 import { useBookmarksStore } from '../stores/bookmarks'
+import { useAuthStore } from '../stores/auth'
 import AddBookmarkDialog from './AddBookmarkDialog.vue'
 
 const store = useBookmarksStore()
+const auth = useAuthStore()
+const router = useRouter()
 const showAdd = ref(false)
 const searchInput = ref(store.filters.q ?? '')
 
@@ -15,6 +19,16 @@ watch(searchInput, (val) => {
     store.setFilter({ q: val || undefined })
   }, 400)
 })
+
+function logout() {
+  auth.logout()
+  store.reset()
+  router.push('/login')
+}
+
+function onCommand(cmd: string | number | object) {
+  if (cmd === 'logout') logout()
+}
 </script>
 
 <template>
@@ -28,6 +42,17 @@ watch(searchInput, (val) => {
       class="search"
     />
     <div class="spacer" />
+    <el-dropdown trigger="click" @command="onCommand">
+      <span class="user">
+        {{ auth.user?.username || '用户' }}
+        <el-icon><ArrowDown /></el-icon>
+      </span>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
     <el-button type="primary" :icon="Plus" @click="showAdd = true">添加收藏</el-button>
     <AddBookmarkDialog v-model="showAdd" />
   </header>
@@ -61,5 +86,14 @@ watch(searchInput, (val) => {
 }
 .spacer {
   flex: 1;
+}
+.user {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #403931;
+  cursor: pointer;
+  white-space: nowrap;
+  outline: none;
 }
 </style>

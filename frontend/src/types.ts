@@ -36,3 +36,15 @@ export interface ListResult<T> {
   page: number
   page_size: number
 }
+
+export interface User {
+  id: number
+  username: string
+  created_at: string
+}
+
+export interface AuthResponse {
+  access_token: string
+  token_type: string
+  user: User
+}

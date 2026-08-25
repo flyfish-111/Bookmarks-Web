@@ -1,5 +1,20 @@
 import { http } from './client'
-import type { Bookmark, Category, ListResult, Tag, TagWithCount } from '../types'
+import type { AuthResponse, Bookmark, Category, ListResult, Tag, TagWithCount, User } from '../types'
+
+export const authApi = {
+  async register(username: string, password: string): Promise<AuthResponse> {
+    const { data } = await http.post<AuthResponse>('/auth/register', { username, password })
+    return data
+  },
+  async login(username: string, password: string): Promise<AuthResponse> {
+    const { data } = await http.post<AuthResponse>('/auth/login', { username, password })
+    return data
+  },
+  async me(): Promise<User> {
+    const { data } = await http.get<User>('/auth/me')
+    return data
+  },
+}
 
 export interface BookmarkListParams {
   q?: string
