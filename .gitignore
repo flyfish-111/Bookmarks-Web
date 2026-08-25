@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 环境变量（含密码，勿提交）
+.env
+
+# Node
+node_modules/
+dist/
+*.local
+
+# Docker 数据卷（数据库持久化数据）
+data/
+
+# IDE / 系统
+.idea/
+.vscode/
+*.log
+.DS_Store

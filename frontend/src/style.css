@@ -1,0 +1,123 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html,
+body,
+#app {
+  height: 100%;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #f7f2ec;
+  color: #403931;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* —— 柔和温暖主题：把 Element Plus 默认蓝色覆盖为暖陶土色 —— */
+:root {
+  --el-color-primary: #c97b5d;
+  --el-color-primary-light-3: #d79b82;
+  --el-color-primary-light-5: #e2b6a3;
+  --el-color-primary-light-7: #ecd1c4;
+  --el-color-primary-light-8: #f1ded5;
+  --el-color-primary-light-9: #f6ece6;
+  --el-color-primary-dark-2: #ad6247;
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-text-color-primary: #403931;
+  --el-text-color-regular: #5f564b;
+  --el-text-color-secondary: #8c7c6c;
+  --el-border-color: #ece2d6;
+  --el-border-color-light: #f0e7dc;
+  --el-border-color-lighter: #f5eee6;
+  --el-bg-color: #fffdfa;
+}
+
+/* Markdown 阅读视图 */
+.markdown-body {
+  line-height: 1.75;
+  font-size: 15px;
+  color: #403931;
+  word-break: break-word;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 1.2em 0 0.6em;
+  line-height: 1.4;
+  color: #362f28;
+}
+.markdown-body h1 {
+  font-size: 1.6em;
+  border-bottom: 1px solid #efe6da;
+  padding-bottom: 0.3em;
+}
+.markdown-body h2 {
+  font-size: 1.35em;
+  border-bottom: 1px solid #efe6da;
+  padding-bottom: 0.3em;
+}
+.markdown-body p {
+  margin: 0.6em 0;
+}
+.markdown-body pre {
+  background: #f6efe7;
+  padding: 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+.markdown-body code {
+  background: #f3eae0;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  color: #a45c3f;
+}
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+.markdown-body blockquote {
+  border-left: 3px solid #e2c9b5;
+  padding-left: 12px;
+  color: #8c7c6c;
+  margin: 0.6em 0;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid #ece2d6;
+  padding: 6px 10px;
+}
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.6em;
+  margin: 0.6em 0;
+}
+.markdown-body a {
+  color: #c97b5d;
+}
+
+/* 拖拽排序占位 */
+.sortable-ghost {
+  opacity: 0.35 !important;
+  background: #f7e8db !important;
+  border: 2px dashed #c97b5d !important;
+  box-shadow: none !important;
+}
+.sortable-chosen {
+  opacity: 0.85 !important;
+}
+.sortable-drag {
+  box-shadow: 0 14px 36px rgba(140, 100, 70, 0.22) !important;
+}
