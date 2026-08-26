@@ -34,7 +34,7 @@ async function submit() {
     const updated = await store.update(props.bookmark.id, {
       title: title.value,
       description: description.value,
-      category_name: categoryName.value.trim() || null,
+      category_name: (categoryName.value ?? '').trim() || null,
       tags: tags.value,
       is_favorite: isFavorite.value,
     })
