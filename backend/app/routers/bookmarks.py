@@ -1,15 +1,26 @@
 import hashlib
+import html as html_lib
+import json
 
 import httpx
+from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models import Bookmark, BookmarkOrder, Category, Tag, User, bookmark_tags, utcnow
-from ..schemas import BookmarkCreate, BookmarkListOut, BookmarkOut, BookmarkUpdate, ReorderPayload
+from ..schemas import (
+    BookmarkCreate,
+    BookmarkListOut,
+    BookmarkOut,
+    BookmarkUpdate,
+    ImportRequest,
+    ImportResult,
+    ReorderPayload,
+)
 from ..security import get_current_user
-from ..services.extractor import extract_content, extract_metadata
+from ..services.extractor import _md_to_text, extract_content, extract_metadata
 from ..services.fetcher import FetchError, fetch_html
 
 router = APIRouter(prefix="/bookmarks", tags=["bookmarks"])
@@ -58,6 +69,84 @@ async def _get_bookmark_by_url(db: AsyncSession, url: str, user: User) -> Bookma
         select(Bookmark).where(Bookmark.url_hash == _url_hash(url), Bookmark.user_id == user.id)
     )
     return result.scalar_one_or_none()
+
+
+def _bookmark_to_export_item(b: Bookmark) -> dict:
+    return {
+        "url": b.url,
+        "title": b.title,
+        "description": b.description or "",
+        "content_markdown": b.content_markdown or "",
+        "favicon_url": b.favicon_url or "",
+        "is_favorite": b.is_favorite,
+        "category_name": b.category.name if b.category else None,
+        "tags": [t.name for t in b.tags],
+    }
+
+
+def _bookmarks_to_html(bookmarks: list[Bookmark]) -> str:
+    """生成可导入浏览器（Chrome/Edge）的 Netscape 书签 HTML。"""
+    lines = [
+        "<!DOCTYPE NETSCAPE-Bookmark-file-1>",
+        '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">',
+        "<TITLE>Bookmarks</TITLE>",
+        "<H1>Bookmarks</H1>",
+        "<DL><p>",
+    ]
+    by_cat: dict[str, list[Bookmark]] = {}
+    uncategorized: list[Bookmark] = []
+    for b in bookmarks:
+        if b.category:
+            by_cat.setdefault(b.category.name, []).append(b)
+        else:
+            uncategorized.append(b)
+
+    def emit(items: list[Bookmark]) -> None:
+        for b in items:
+            lines.append(f'<DT><A HREF="{html_lib.escape(b.url)}">{html_lib.escape(b.title)}</A>')
+
+    for cat, items in by_cat.items():
+        lines.append(f"<DT><H3>{html_lib.escape(cat)}</H3>")
+        lines.append("<DL><p>")
+        emit(items)
+        lines.append("</DL><p>")
+    if uncategorized:
+        emit(uncategorized)
+    lines.append("</DL><p>")
+    return "\n".join(lines)
+
+
+def _detect_import_format(text: str) -> str:
+    t = text.lstrip()
+    if t.startswith("[") or t.startswith("{"):
+        return "json"
+    if "NETSCAPE" in t.upper() or "<DT><A" in t.upper() or "<A " in t.upper():
+        return "html"
+    raise HTTPException(status_code=422, detail="无法识别的文件格式（仅支持 JSON 或浏览器书签 HTML）")
+
+
+def _parse_html_bookmarks(text: str) -> list[dict]:
+    soup = BeautifulSoup(text, "html.parser")
+    items: list[dict] = []
+    category: str | None = None
+    for node in soup.find_all(["h3", "a"]):
+        if node.name == "h3":
+            category = node.get_text(strip=True) or None
+        elif node.name == "a":
+            href = node.get("href")
+            if href:
+                title = node.get_text(strip=True) or href
+                items.append({"url": href, "title": title, "category_name": category})
+    return items
+
+
+def _normalize_url(url: str) -> str:
+    url = (url or "").strip()
+    if not url:
+        return ""
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+    return url
 
 
 @router.post("", response_model=BookmarkOut)
@@ -200,6 +289,94 @@ async def reorder_bookmarks(
         for index, bookmark_id in enumerate(payload.ids):
             db.add(BookmarkOrder(scope=payload.scope, bookmark_id=bookmark_id, position=index))
     await db.commit()
+
+
+@router.get("/export")
+async def export_bookmarks(
+    format: str = Query(default="json"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """导出当前用户全部收藏：json（完整备份）或 html（可导入浏览器）。"""
+    bookmarks = (
+        await db.execute(
+            select(Bookmark).where(Bookmark.user_id == user.id).order_by(Bookmark.sort_order, Bookmark.created_at.desc())
+        )
+    ).scalars().all()
+
+    if format == "html":
+        content = _bookmarks_to_html(bookmarks)
+        return Response(
+            content=content,
+            media_type="text/html; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="bookmarks.html"'},
+        )
+    return [_bookmark_to_export_item(b) for b in bookmarks]
+
+
+@router.post("/import", response_model=ImportResult)
+async def import_bookmarks(
+    payload: ImportRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """导入收藏（JSON 完整备份 或 浏览器书签 HTML），按 url 去重，跳过已存在的。"""
+    text = payload.data or ""
+    fmt = _detect_import_format(text)
+
+    if fmt == "json":
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=422, detail="JSON 解析失败")
+        if isinstance(raw, dict):
+            raw = raw.get("bookmarks", raw)
+        if not isinstance(raw, list):
+            raise HTTPException(status_code=422, detail="JSON 结构不正确")
+        items = [i for i in raw if isinstance(i, dict)]
+    else:
+        items = _parse_html_bookmarks(text)
+
+    min_order = (await db.execute(select(func.min(Bookmark.sort_order)).where(Bookmark.user_id == user.id))).scalar()
+    next_order = (min_order - 1) if min_order is not None else 0
+
+    imported = 0
+    skipped = 0
+    for item in items:
+        url = _normalize_url(item.get("url"))
+        if not url:
+            continue
+        if await _get_bookmark_by_url(db, url, user):
+            skipped += 1
+            continue
+
+        content_markdown = item.get("content_markdown") or ""
+        category_name = item.get("category_name")
+        tags = item.get("tags") or []
+
+        bookmark = Bookmark(
+            url=url,
+            url_hash=_url_hash(url),
+            title=(item.get("title") or "").strip() or url,
+            description=item.get("description") or "",
+            content_markdown=content_markdown,
+            content_text=_md_to_text(content_markdown),
+            favicon_url=item.get("favicon_url") or "",
+            is_favorite=bool(item.get("is_favorite", False)),
+            sort_order=next_order,
+            user_id=user.id,
+        )
+        if category_name and str(category_name).strip():
+            bookmark.category = await _get_or_create_category(db, str(category_name), user)
+        if tags:
+            bookmark.tags = await _get_or_create_tags(db, [str(t) for t in tags], user)
+
+        db.add(bookmark)
+        next_order -= 1
+        imported += 1
+
+    await db.commit()
+    return ImportResult(imported=imported, skipped=skipped)
 
 
 @router.get("/{bookmark_id}", response_model=BookmarkOut)

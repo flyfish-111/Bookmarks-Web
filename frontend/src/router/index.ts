@@ -13,7 +13,7 @@ const router = createRouter({
 router.beforeEach((to) => {
   const token = localStorage.getItem(TOKEN_KEY)
   if (to.path !== '/login' && !token) {
-    return { path: '/login' }
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
   if (to.path === '/login' && token) {
     return { path: '/' }

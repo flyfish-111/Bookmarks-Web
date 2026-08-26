@@ -107,3 +107,12 @@ class BookmarkListOut(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ImportRequest(BaseModel):
+    data: str
+
+
+class ImportResult(BaseModel):
+    imported: int
+    skipped: int

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useAuthStore } from '../stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
 
 const mode = ref<'login' | 'register'>('login')
 const form = reactive({ username: '', password: '' })
@@ -23,7 +24,8 @@ async function submit() {
     } else {
       await auth.register(form.username.trim(), form.password)
     }
-    router.push('/')
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
+    router.push(redirect)
   } catch {
     // 错误提示已由 axios 拦截器统一处理
   } finally {

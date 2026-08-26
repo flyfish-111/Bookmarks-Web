@@ -1,16 +1,29 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { ArrowDown, Plus, Search } from '@element-plus/icons-vue'
+import { bookmarksApi } from '../api'
 import { useBookmarksStore } from '../stores/bookmarks'
 import { useAuthStore } from '../stores/auth'
+import { useMetaStore } from '../stores/meta'
 import AddBookmarkDialog from './AddBookmarkDialog.vue'
 
 const store = useBookmarksStore()
 const auth = useAuthStore()
 const router = useRouter()
+const route = useRoute()
+
 const showAdd = ref(false)
+const addUrl = ref('')
 const searchInput = ref(store.filters.q ?? '')
+const fileInput = ref<HTMLInputElement | null>(null)
+const showBookmarklet = ref(false)
+
+const bookmarkletCode = computed(() => {
+  const origin = window.location.origin
+  return `javascript:(function(){window.open('${origin}/?url='+encodeURIComponent(location.href),'_blank','noopener');})()`
+})
 
 let timer: ReturnType<typeof setTimeout> | undefined
 watch(searchInput, (val) => {
@@ -20,14 +33,54 @@ watch(searchInput, (val) => {
   }, 400)
 })
 
+onMounted(() => {
+  const u = route.query.url
+  if (typeof u === 'string' && u.trim()) {
+    addUrl.value = u.trim()
+    showAdd.value = true
+  }
+})
+
 function logout() {
   auth.logout()
   store.reset()
   router.push('/login')
 }
 
-function onCommand(cmd: string | number | object) {
+function onUserCommand(cmd: string | number | object) {
   if (cmd === 'logout') logout()
+}
+
+function onMoreCommand(cmd: string | number | object) {
+  if (cmd === 'export-json') doExport('json')
+  else if (cmd === 'export-html') doExport('html')
+  else if (cmd === 'import') fileInput.value?.click()
+  else if (cmd === 'bookmarklet') showBookmarklet.value = true
+}
+
+async function doExport(format: 'json' | 'html') {
+  try {
+    await bookmarksApi.exportFile(format)
+  } catch {
+    // 错误已由拦截器提示
+  }
+}
+
+async function onFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const result = await bookmarksApi.importFile(text)
+    ElMessage.success(`导入完成：新增 ${result.imported} 条，跳过 ${result.skipped} 条（已存在）`)
+    await store.load()
+    useMetaStore().loadAll()
+  } catch {
+    // 错误已由拦截器提示
+  } finally {
+    input.value = ''
+  }
 }
 </script>
 
@@ -42,7 +95,7 @@ function onCommand(cmd: string | number | object) {
       class="search"
     />
     <div class="spacer" />
-    <el-dropdown trigger="click" @command="onCommand">
+    <el-dropdown trigger="click" @command="onUserCommand">
       <span class="user">
         {{ auth.user?.username || '用户' }}
         <el-icon><ArrowDown /></el-icon>
@@ -53,8 +106,33 @@ function onCommand(cmd: string | number | object) {
         </el-dropdown-menu>
       </template>
     </el-dropdown>
+    <el-dropdown trigger="click" @command="onMoreCommand">
+      <span class="user">
+        更多
+        <el-icon><ArrowDown /></el-icon>
+      </span>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item command="export-html">导出收藏（HTML）</el-dropdown-item>
+          <el-dropdown-item command="export-json">导出收藏（JSON 备份）</el-dropdown-item>
+          <el-dropdown-item command="import">导入收藏</el-dropdown-item>
+          <el-dropdown-item divided command="bookmarklet">一键收藏书签工具</el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
     <el-button type="primary" :icon="Plus" @click="showAdd = true">添加收藏</el-button>
-    <AddBookmarkDialog v-model="showAdd" />
+    <AddBookmarkDialog v-model="showAdd" :initial-url="addUrl" />
+
+    <input ref="fileInput" type="file" accept=".json,.html,.htm" style="display: none" @change="onFileChange" />
+
+    <el-dialog v-model="showBookmarklet" title="一键收藏书签工具" width="520px" append-to-body>
+      <p class="bm-tip">把下面的按钮拖到浏览器书签栏，之后在任意网页点它，就能一键收藏当前页。</p>
+      <div class="bm-drag">
+        <a :href="bookmarkletCode" class="bm-link">📌 收藏到网址收藏夹</a>
+      </div>
+      <p class="bm-tip">若拖拽无效，复制下面代码，手动新建书签并把地址粘贴进去：</p>
+      <el-input type="textarea" :model-value="bookmarkletCode" readonly :rows="2" />
+    </el-dialog>
   </header>
 </template>
 
@@ -95,5 +173,25 @@ function onCommand(cmd: string | number | object) {
   cursor: pointer;
   white-space: nowrap;
   outline: none;
+}
+.bm-tip {
+  color: #8c7c6c;
+  font-size: 13px;
+  margin: 0 0 10px;
+}
+.bm-drag {
+  text-align: center;
+  margin: 4px 0 16px;
+}
+.bm-link {
+  display: inline-block;
+  padding: 10px 20px;
+  background: #c97b5d;
+  color: #fff;
+  border-radius: 10px;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: grab;
 }
 </style>
