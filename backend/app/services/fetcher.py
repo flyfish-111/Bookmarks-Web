@@ -13,7 +13,7 @@ class FetchError(Exception):
     """抓取失败（SSRF 校验失败、HTTP 错误、体积超限、重定向异常等）。"""
 
 
-async def fetch_html(url: str) -> tuple[str, str]:
+async def fetch_html(url: str, timeout: float | None = None) -> tuple[str, str]:
     """抓取网页，逐跳跟随重定向（每一跳都做 SSRF 校验）。返回 (最终地址, HTML)。"""
     current = url
     headers = {
@@ -21,7 +21,7 @@ async def fetch_html(url: str) -> tuple[str, str]:
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
     async with httpx.AsyncClient(
-        timeout=settings.fetch_timeout,
+        timeout=timeout if timeout is not None else settings.fetch_timeout,
         follow_redirects=False,
         headers=headers,
     ) as client:

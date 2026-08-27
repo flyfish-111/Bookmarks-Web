@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import html as html_lib
 import json
@@ -164,6 +165,39 @@ def _normalize_url(url: str) -> str:
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
     return url
+
+
+async def _fetch_one_for_import(url: str) -> dict | None:
+    """抓取单个网址的标题/描述/正文/favicon，任何失败都返回 None（不阻断导入）。"""
+    try:
+        final_url, html = await fetch_html(url, timeout=8.0)
+    except Exception:
+        return None
+    try:
+        title, description, favicon = extract_metadata(html, final_url)
+        content_markdown, content_text = extract_content(html, final_url)
+    except Exception:
+        title, description, favicon = "", "", ""
+        content_markdown, content_text = "", ""
+    return {
+        "title": title,
+        "description": description,
+        "content_markdown": content_markdown,
+        "content_text": content_text,
+        "favicon_url": favicon,
+    }
+
+
+async def _fetch_many(urls: list[str], concurrency: int = 8) -> dict[str, dict]:
+    """并发抓取多个网址，返回 {url: 抓取结果}（失败的不在其中）。"""
+    sem = asyncio.Semaphore(concurrency)
+
+    async def one(url: str) -> tuple[str, dict | None]:
+        async with sem:
+            return url, await _fetch_one_for_import(url)
+
+    results = await asyncio.gather(*[one(u) for u in urls])
+    return {u: info for u, info in results if info}
 
 
 @router.post("", response_model=BookmarkOut)
@@ -337,7 +371,7 @@ async def import_bookmarks(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """导入收藏（JSON 完整备份 或 浏览器书签 HTML），按 url 去重，跳过已存在的。"""
+    """导入收藏（JSON 备份 / 浏览器书签 HTML / 纯文本网址列表），按 url 去重，txt/html 自动抓取页面信息。"""
     text = payload.data or ""
     fmt = _detect_import_format(text)
 
@@ -356,31 +390,55 @@ async def import_bookmarks(
     else:
         items = _parse_txt_bookmarks(text)
 
+    # 规范化 + 去重
+    to_import: list[tuple[dict, str]] = []
+    skipped = 0
+    seen: set[str] = set()
+    for item in items:
+        url = _normalize_url(item.get("url"))
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        if await _get_bookmark_by_url(db, url, user):
+            skipped += 1
+            continue
+        to_import.append((item, url))
+
+    # txt/html 自动抓取页面信息；json 已含正文，无需抓取
+    fetched: dict[str, dict] = {}
+    if to_import and fmt != "json":
+        fetched = await _fetch_many([u for _, u in to_import])
+
     min_order = (await db.execute(select(func.min(Bookmark.sort_order)).where(Bookmark.user_id == user.id))).scalar()
     next_order = (min_order - 1) if min_order is not None else 0
 
     imported = 0
-    skipped = 0
-    for item in items:
-        url = _normalize_url(item.get("url"))
-        if not url:
-            continue
-        if await _get_bookmark_by_url(db, url, user):
-            skipped += 1
-            continue
+    for item, url in to_import:
+        info = fetched.get(url)
+        if info:
+            title = (info["title"] or "").strip() or url
+            description = info["description"] or ""
+            content_markdown = info["content_markdown"] or ""
+            content_text = info["content_text"] or ""
+            favicon_url = info["favicon_url"] or ""
+        else:
+            title = (item.get("title") or "").strip() or url
+            description = item.get("description") or ""
+            content_markdown = item.get("content_markdown") or ""
+            content_text = _md_to_text(content_markdown)
+            favicon_url = item.get("favicon_url") or ""
 
-        content_markdown = item.get("content_markdown") or ""
         category_name = item.get("category_name")
         tags = item.get("tags") or []
 
         bookmark = Bookmark(
             url=url,
             url_hash=_url_hash(url),
-            title=(item.get("title") or "").strip() or url,
-            description=item.get("description") or "",
+            title=title,
+            description=description,
             content_markdown=content_markdown,
-            content_text=_md_to_text(content_markdown),
-            favicon_url=item.get("favicon_url") or "",
+            content_text=content_text,
+            favicon_url=favicon_url,
             is_favorite=bool(item.get("is_favorite", False)),
             sort_order=next_order,
             user_id=user.id,

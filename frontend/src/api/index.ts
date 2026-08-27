@@ -72,7 +72,7 @@ export const bookmarksApi = {
     URL.revokeObjectURL(url)
   },
   async importFile(data: string): Promise<{ imported: number; skipped: number }> {
-    const { data: result } = await http.post<{ imported: number; skipped: number }>('/bookmarks/import', { data })
+    const { data: result } = await http.post<{ imported: number; skipped: number }>('/bookmarks/import', { data }, { timeout: 300000 })
     return result
   },
 }

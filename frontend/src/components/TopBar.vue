@@ -70,13 +70,16 @@ async function onFileChange(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  const loading = ElMessage({ message: '正在导入并抓取网页信息，请稍候…', type: 'info', duration: 0 })
   try {
     const text = await file.text()
     const result = await bookmarksApi.importFile(text)
+    loading.close()
     ElMessage.success(`导入完成：新增 ${result.imported} 条，跳过 ${result.skipped} 条（已存在）`)
     await store.load()
     useMetaStore().loadAll()
   } catch {
+    loading.close()
     // 错误已由拦截器提示
   } finally {
     input.value = ''
