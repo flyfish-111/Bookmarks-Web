@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowRight, Collection, FolderOpened, Plus, Star } from '@element-plus/icons-vue'
 import { useMetaStore } from '../stores/meta'
 import { useBookmarksStore } from '../stores/bookmarks'
 import type { Category } from '../types'
 
+const router = useRouter()
 const meta = useMetaStore()
 const bookmarks = useBookmarksStore()
 
@@ -47,18 +49,23 @@ const isUncat = computed(() => bookmarks.filters.uncategorized === true)
 
 function selectAll() {
   bookmarks.setFilter({ category_id: null, tag_id: null, is_favorite: undefined, uncategorized: undefined })
+  router.push('/')
 }
 function selectFavorites() {
   bookmarks.setFilter({ is_favorite: true, category_id: null, tag_id: null, uncategorized: undefined })
+  router.push('/')
 }
 function selectUncategorized() {
   bookmarks.setFilter({ uncategorized: true, category_id: null, tag_id: null, is_favorite: undefined })
+  router.push('/')
 }
 function selectCategory(id: number) {
   bookmarks.setFilter({ category_id: id, tag_id: null, is_favorite: undefined, uncategorized: undefined })
+  router.push('/')
 }
 function selectTag(id: number) {
   bookmarks.setFilter({ tag_id: id, category_id: null, is_favorite: undefined, uncategorized: undefined })
+  router.push('/')
 }
 
 async function addCategory() {
