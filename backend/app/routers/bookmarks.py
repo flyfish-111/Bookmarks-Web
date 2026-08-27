@@ -372,6 +372,13 @@ async def export_bookmarks(
             media_type="text/html; charset=utf-8",
             headers={"Content-Disposition": 'attachment; filename="bookmarks.html"'},
         )
+    if format == "txt":
+        content = "\n".join(b.url for b in bookmarks)
+        return Response(
+            content=content,
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="bookmarks.txt"'},
+        )
     return [_bookmark_to_export_item(b) for b in bookmarks]
 
 

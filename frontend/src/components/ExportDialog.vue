@@ -10,7 +10,7 @@ const meta = useMetaStore()
 const scope = ref<'all' | 'category' | 'tag'>('all')
 const categoryId = ref<number | null>(null)
 const tagId = ref<number | null>(null)
-const format = ref<'json' | 'html'>('json')
+const format = ref<'json' | 'html' | 'txt'>('json')
 const exporting = ref(false)
 
 async function doExport() {
@@ -62,6 +62,7 @@ async function doExport() {
         <el-radio-group v-model="format">
           <el-radio value="json">JSON（完整备份，可再导入）</el-radio>
           <el-radio value="html">HTML（可导入浏览器）</el-radio>
+          <el-radio value="txt">TXT（纯网址列表，每行一个）</el-radio>
         </el-radio-group>
       </el-form-item>
     </el-form>
