@@ -8,6 +8,7 @@ import { useBookmarksStore } from '../stores/bookmarks'
 import { useAuthStore } from '../stores/auth'
 import { useMetaStore } from '../stores/meta'
 import AddBookmarkDialog from './AddBookmarkDialog.vue'
+import ExportDialog from './ExportDialog.vue'
 
 const store = useBookmarksStore()
 const auth = useAuthStore()
@@ -19,6 +20,7 @@ const addUrl = ref('')
 const searchInput = ref(store.filters.q ?? '')
 const fileInput = ref<HTMLInputElement | null>(null)
 const showBookmarklet = ref(false)
+const showExport = ref(false)
 
 const bookmarkletCode = computed(() => {
   const origin = window.location.origin
@@ -52,18 +54,9 @@ function onUserCommand(cmd: string | number | object) {
 }
 
 function onMoreCommand(cmd: string | number | object) {
-  if (cmd === 'export-json') doExport('json')
-  else if (cmd === 'export-html') doExport('html')
+  if (cmd === 'export') showExport.value = true
   else if (cmd === 'import') fileInput.value?.click()
   else if (cmd === 'bookmarklet') showBookmarklet.value = true
-}
-
-async function doExport(format: 'json' | 'html') {
-  try {
-    await bookmarksApi.exportFile(format)
-  } catch {
-    // 错误已由拦截器提示
-  }
 }
 
 async function onFileChange(e: Event) {
@@ -116,8 +109,7 @@ async function onFileChange(e: Event) {
       </span>
       <template #dropdown>
         <el-dropdown-menu>
-          <el-dropdown-item command="export-html">导出收藏（HTML）</el-dropdown-item>
-          <el-dropdown-item command="export-json">导出收藏（JSON 备份）</el-dropdown-item>
+          <el-dropdown-item command="export">导出收藏</el-dropdown-item>
           <el-dropdown-item command="import">导入收藏</el-dropdown-item>
           <el-dropdown-item divided command="bookmarklet">一键收藏书签工具</el-dropdown-item>
         </el-dropdown-menu>
@@ -125,6 +117,7 @@ async function onFileChange(e: Event) {
     </el-dropdown>
     <el-button type="primary" :icon="Plus" @click="showAdd = true">添加收藏</el-button>
     <AddBookmarkDialog v-model="showAdd" :initial-url="addUrl" />
+    <ExportDialog v-model="showExport" />
 
     <input ref="fileInput" type="file" accept=".json,.html,.htm,.txt" style="display: none" @change="onFileChange" />
 

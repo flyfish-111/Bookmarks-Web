@@ -61,8 +61,8 @@ export const bookmarksApi = {
   async reorder(scope: string, ids: number[]): Promise<void> {
     await http.put('/bookmarks/reorder', { scope, ids })
   },
-  async exportFile(format: 'json' | 'html'): Promise<void> {
-    const resp = await http.get('/bookmarks/export', { params: { format }, responseType: 'blob' })
+  async exportFile(format: 'json' | 'html', params: { category_id?: number; tag_id?: number } = {}): Promise<void> {
+    const resp = await http.get('/bookmarks/export', { params: { format, ...params }, responseType: 'blob' })
     const blob = resp.data as Blob
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')

@@ -345,13 +345,23 @@ async def reorder_bookmarks(
 @router.get("/export")
 async def export_bookmarks(
     format: str = Query(default="json"),
+    category_id: int | None = Query(default=None),
+    tag_id: int | None = Query(default=None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """导出当前用户全部收藏：json（完整备份）或 html（可导入浏览器）。"""
+    """导出收藏：json（完整备份）或 html（可导入浏览器）；可按分类/标签过滤。"""
+    conditions = [Bookmark.user_id == user.id]
+    if category_id is not None:
+        conditions.append(Bookmark.category_id == category_id)
+    if tag_id is not None:
+        conditions.append(
+            Bookmark.id.in_(select(bookmark_tags.c.bookmark_id).where(bookmark_tags.c.tag_id == tag_id))
+        )
+
     bookmarks = (
         await db.execute(
-            select(Bookmark).where(Bookmark.user_id == user.id).order_by(Bookmark.sort_order, Bookmark.created_at.desc())
+            select(Bookmark).where(*conditions).order_by(Bookmark.sort_order, Bookmark.created_at.desc())
         )
     ).scalars().all()
 
