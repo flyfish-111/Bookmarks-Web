@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
 import { ArrowDown, Plus, Search } from '@element-plus/icons-vue'
-import { bookmarksApi } from '../api'
 import { useBookmarksStore } from '../stores/bookmarks'
 import { useAuthStore } from '../stores/auth'
-import { useMetaStore } from '../stores/meta'
 import AddBookmarkDialog from './AddBookmarkDialog.vue'
 import ExportDialog from './ExportDialog.vue'
+import ImportDialog from './ImportDialog.vue'
 
 const store = useBookmarksStore()
 const auth = useAuthStore()
@@ -18,9 +16,9 @@ const route = useRoute()
 const showAdd = ref(false)
 const addUrl = ref('')
 const searchInput = ref(store.filters.q ?? '')
-const fileInput = ref<HTMLInputElement | null>(null)
 const showBookmarklet = ref(false)
 const showExport = ref(false)
+const showImport = ref(false)
 
 const bookmarkletCode = computed(() => {
   const origin = window.location.origin
@@ -55,28 +53,8 @@ function onUserCommand(cmd: string | number | object) {
 
 function onMoreCommand(cmd: string | number | object) {
   if (cmd === 'export') showExport.value = true
-  else if (cmd === 'import') fileInput.value?.click()
+  else if (cmd === 'import') showImport.value = true
   else if (cmd === 'bookmarklet') showBookmarklet.value = true
-}
-
-async function onFileChange(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  const loading = ElMessage({ message: '正在导入并抓取网页信息，请稍候…', type: 'info', duration: 0 })
-  try {
-    const text = await file.text()
-    const result = await bookmarksApi.importFile(text)
-    loading.close()
-    ElMessage.success(`导入完成：新增 ${result.imported} 条，跳过 ${result.skipped} 条（已存在）`)
-    await store.load()
-    useMetaStore().loadAll()
-  } catch {
-    loading.close()
-    // 错误已由拦截器提示
-  } finally {
-    input.value = ''
-  }
 }
 </script>
 
@@ -118,8 +96,7 @@ async function onFileChange(e: Event) {
     <el-button type="primary" :icon="Plus" @click="showAdd = true">添加收藏</el-button>
     <AddBookmarkDialog v-model="showAdd" :initial-url="addUrl" />
     <ExportDialog v-model="showExport" />
-
-    <input ref="fileInput" type="file" accept=".json,.html,.htm,.txt" style="display: none" @change="onFileChange" />
+    <ImportDialog v-model="showImport" />
 
     <el-dialog v-model="showBookmarklet" title="一键收藏书签工具" width="520px" append-to-body>
       <p class="bm-tip">把下面的按钮拖到浏览器书签栏，之后在任意网页点它，就能一键收藏当前页。</p>
