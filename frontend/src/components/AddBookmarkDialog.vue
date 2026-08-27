@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useBookmarksStore } from '../stores/bookmarks'
 import { useMetaStore } from '../stores/meta'
 
 const visible = defineModel<boolean>({ default: false })
-const props = defineProps<{ initialUrl?: string }>()
 const store = useBookmarksStore()
 const meta = useMetaStore()
 
@@ -13,14 +12,6 @@ const url = ref('')
 const categoryName = ref('')
 const tags = ref<string[]>([])
 const submitting = ref(false)
-
-watch(
-  () => props.initialUrl,
-  (u) => {
-    if (u) url.value = u
-  },
-  { immediate: true },
-)
 
 async function submit() {
   const u = url.value.trim()
