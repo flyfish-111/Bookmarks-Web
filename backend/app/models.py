@@ -68,7 +68,7 @@ class Bookmark(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     url = Column(String(2048), nullable=False)
-    url_hash = Column(String(64), nullable=False, unique=True)
+    url_hash = Column(String(64), nullable=False)
     title = Column(String(512), nullable=False)
     description = Column(Text)
     content_markdown = Column(LONGTEXT)
@@ -83,6 +83,8 @@ class Bookmark(Base):
 
     category = relationship("Category", back_populates="bookmarks", lazy="selectin")
     tags = relationship("Tag", secondary=bookmark_tags, lazy="selectin")
+
+    __table_args__ = (UniqueConstraint("user_id", "url_hash", name="uq_bookmarks_user_url_hash"),)
 
 
 class BookmarkOrder(Base):

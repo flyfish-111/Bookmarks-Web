@@ -25,8 +25,26 @@ async def _index_exists(conn, table: str, index_name: str) -> bool:
     return any(r[2] == index_name for r in rows)
 
 
+async def _convert_unique_to_composite(conn, table: str, old_column: str, new_name: str, new_columns: str) -> None:
+    """把某表的单列「全局唯一」索引，改成「(user_id, 列) 每用户唯一」。幂等。"""
+    rows = (await conn.execute(text(f"SHOW INDEX FROM {table}"))).fetchall()
+    index_cols: dict[str, list[str]] = {}
+    index_nonunique: dict[str, int] = {}
+    for r in rows:
+        index_cols.setdefault(r[2], []).append(r[4])  # r[2]=Key_name, r[4]=Column_name
+        index_nonunique[r[2]] = r[1]  # r[1]=Non_unique
+    old_index = next(
+        (k for k, cols in index_cols.items() if index_nonunique.get(k) == 0 and cols == [old_column]),
+        None,
+    )
+    if old_index:
+        await conn.execute(text(f"ALTER TABLE {table} DROP INDEX {old_index}"))
+    if new_name not in index_cols:
+        await conn.execute(text(f"ALTER TABLE {table} ADD UNIQUE INDEX {new_name} ({new_columns})"))
+
+
 async def _migrate(conn) -> None:
-    """轻量迁移：补充 sort_order / user_id 列，并将 tags.name 的唯一约束改为 (user_id, name)。"""
+    """轻量迁移：补充 sort_order / user_id 列，并将 bookmarks.url_hash、tags.name 的全局唯一改为每用户唯一。"""
     # bookmarks.sort_order（历史列）
     if not await _column_exists(conn, "bookmarks", "sort_order"):
         await conn.execute(text("ALTER TABLE bookmarks ADD COLUMN sort_order INT NOT NULL DEFAULT 0"))
@@ -40,22 +58,9 @@ async def _migrate(conn) -> None:
     if not await _index_exists(conn, "bookmarks", "ix_bookmarks_user_id"):
         await conn.execute(text("ALTER TABLE bookmarks ADD INDEX ix_bookmarks_user_id (user_id)"))
 
-    # tags：把「name 全局唯一」改成「(user_id, name) 每用户唯一」
-    # SHOW INDEX 每列一行，按 Key_name 分组，找出「只含 name 一列」的唯一索引（旧的全局唯一）
-    rows = (await conn.execute(text("SHOW INDEX FROM tags"))).fetchall()
-    index_cols: dict[str, list[str]] = {}
-    index_nonunique: dict[str, int] = {}
-    for r in rows:
-        index_cols.setdefault(r[2], []).append(r[4])  # r[2]=Key_name, r[4]=Column_name
-        index_nonunique[r[2]] = r[1]  # r[1]=Non_unique
-    old_name_index = next(
-        (k for k, cols in index_cols.items() if index_nonunique.get(k) == 0 and cols == ["name"]),
-        None,
-    )
-    if old_name_index:
-        await conn.execute(text(f"ALTER TABLE tags DROP INDEX {old_name_index}"))
-    if "uq_tags_user_name" not in index_cols:
-        await conn.execute(text("ALTER TABLE tags ADD UNIQUE INDEX uq_tags_user_name (user_id, name)"))
+    # 把「全局唯一」改成「每用户唯一」：bookmarks.url_hash、tags.name
+    await _convert_unique_to_composite(conn, "bookmarks", "url_hash", "uq_bookmarks_user_url_hash", "user_id, url_hash")
+    await _convert_unique_to_composite(conn, "tags", "name", "uq_tags_user_name", "user_id, name")
 
 
 async def init_db(retries: int = 10, delay: float = 3.0) -> None:
