@@ -123,7 +123,7 @@ async function onFileChange(e: Event) {
     <el-button type="primary" :icon="Plus" @click="showAdd = true">添加收藏</el-button>
     <AddBookmarkDialog v-model="showAdd" :initial-url="addUrl" />
 
-    <input ref="fileInput" type="file" accept=".json,.html,.htm" style="display: none" @change="onFileChange" />
+    <input ref="fileInput" type="file" accept=".json,.html,.htm,.txt" style="display: none" @change="onFileChange" />
 
     <el-dialog v-model="showBookmarklet" title="一键收藏书签工具" width="520px" append-to-body>
       <p class="bm-tip">把下面的按钮拖到浏览器书签栏，之后在任意网页点它，就能一键收藏当前页。</p>

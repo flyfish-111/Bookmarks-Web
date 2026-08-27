@@ -122,7 +122,7 @@ def _detect_import_format(text: str) -> str:
         return "json"
     if "NETSCAPE" in t.upper() or "<DT><A" in t.upper() or "<A " in t.upper():
         return "html"
-    raise HTTPException(status_code=422, detail="无法识别的文件格式（仅支持 JSON 或浏览器书签 HTML）")
+    return "txt"
 
 
 def _parse_html_bookmarks(text: str) -> list[dict]:
@@ -137,6 +137,23 @@ def _parse_html_bookmarks(text: str) -> list[dict]:
             if href:
                 title = node.get_text(strip=True) or href
                 items.append({"url": href, "title": title, "category_name": category})
+    return items
+
+
+def _parse_txt_bookmarks(text: str) -> list[dict]:
+    """解析纯文本网址列表：每行一个网址，可附带标题（用空格/制表符分隔），# 开头为注释。"""
+    items: list[dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split(None, 1)
+        url = parts[0]
+        title = parts[1].strip() if len(parts) > 1 else ""
+        # 跳过明显不是网址的行（既无协议也无点号）
+        if "://" not in url and "." not in url:
+            continue
+        items.append({"url": url, "title": title})
     return items
 
 
@@ -334,8 +351,10 @@ async def import_bookmarks(
         if not isinstance(raw, list):
             raise HTTPException(status_code=422, detail="JSON 结构不正确")
         items = [i for i in raw if isinstance(i, dict)]
-    else:
+    elif fmt == "html":
         items = _parse_html_bookmarks(text)
+    else:
+        items = _parse_txt_bookmarks(text)
 
     min_order = (await db.execute(select(func.min(Bookmark.sort_order)).where(Bookmark.user_id == user.id))).scalar()
     next_order = (min_order - 1) if min_order is not None else 0
