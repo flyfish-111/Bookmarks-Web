@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, Plus, Search } from '@element-plus/icons-vue'
 import { useBookmarksStore } from '../stores/bookmarks'
@@ -22,7 +22,7 @@ const showImport = ref(false)
 
 const bookmarkletCode = computed(() => {
   const origin = window.location.origin
-  return `javascript:(function(){window.open('${origin}/?url='+encodeURIComponent(location.href),'_blank','noopener');})()`
+  return `javascript:(function(){var a=document.createElement('a');a.href='${origin}/?url='+encodeURIComponent(location.href);a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();document.body.removeChild(a);})()`
 })
 
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -33,13 +33,16 @@ watch(searchInput, (val) => {
   }, 400)
 })
 
-onMounted(() => {
-  const u = route.query.url
-  if (typeof u === 'string' && u.trim()) {
-    addUrl.value = u.trim()
-    showAdd.value = true
-  }
-})
+watch(
+  () => route.query.url,
+  (u) => {
+    if (typeof u === 'string' && u.trim()) {
+      addUrl.value = u.trim()
+      showAdd.value = true
+    }
+  },
+  { immediate: true },
+)
 
 function logout() {
   auth.logout()
